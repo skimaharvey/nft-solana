@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect} from 'react';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { Program, Provider, web3 } from '@project-serum/anchor';
 import { MintLayout, TOKEN_PROGRAM_ID, Token } from '@solana/spl-token';
@@ -13,7 +13,7 @@ const {
   metadata: { Metadata, MetadataProgram },
 } = programs;
 
-const config = new web3.PublicKey(process.env.REACT_APP_CANDY_MACHINE_CONFIG);
+// const config = new web3.PublicKey(process.env.REACT_APP_CANDY_MACHINE_CONFIG);
 const { SystemProgram } = web3;
 const opts = {
   preflightCommitment: 'processed',
@@ -58,6 +58,7 @@ const CandyMachine = ({ walletAddress }) => {
       }
     );
 
+
     const mintHashes = [];
 
     for (let index = 0; index < metadataAccounts.length; index++) {
@@ -70,6 +71,61 @@ const CandyMachine = ({ walletAddress }) => {
 
     return mintHashes;
   };
+
+  useEffect(() => {
+    getCandyMachineState();
+  }, []);
+
+  const getProvider = () => {
+    const rpcHost = process.env.REACT_APP_SOLANA_RPC_HOST;
+    // Create a new connection object
+    const connection = new Connection(rpcHost);
+    
+    // Create a new Solana provider object
+    const provider = new Provider(
+      connection,
+      window.solana,
+      opts.preflightCommitment
+    );
+  
+    return provider;
+  };
+
+
+  // Declare getCandyMachineState as an async method
+const getCandyMachineState = async () => { 
+  const provider = getProvider();
+  
+  // Get metadata about your deployed candy machine program
+  const idl = await Program.fetchIdl(candyMachineProgram, provider);
+
+  // Create a program that you can call
+  const program = new Program(idl, candyMachineProgram, provider);
+
+  // Fetch the metadata from your candy machine
+  const candyMachine = await program.account.candyMachine.fetch(
+    process.env.REACT_APP_CANDY_MACHINE_ID
+  );
+  
+  // Parse out all our metadata and log it out
+  const itemsAvailable = candyMachine.data.itemsAvailable.toNumber();
+  const itemsRedeemed = candyMachine.itemsRedeemed.toNumber();
+  const itemsRemaining = itemsAvailable - itemsRedeemed;
+  const goLiveData = candyMachine.data.goLiveDate.toNumber();
+
+  // We will be using this later in our UI so let's generate this now
+  const goLiveDateTimeString = `${new Date(
+    goLiveData * 1000
+  ).toGMTString()}`
+
+  console.log({
+    itemsAvailable,
+    itemsRedeemed,
+    itemsRemaining,
+    goLiveData,
+    goLiveDateTimeString,
+  });
+};
 
   const getMetadata = async (mint) => {
     return (
@@ -107,6 +163,14 @@ const CandyMachine = ({ walletAddress }) => {
     )[0];
   };
 
+  const getCandyMachineCreator = async (candyMachine) => {
+    const candyMachineID = new PublicKey(candyMachine);
+    return await web3.PublicKey.findProgramAddress(
+        [Buffer.from('candy_machine'), candyMachineID.toBuffer()],
+        candyMachineProgram,
+    );
+};
+
   const mintToken = async () => {
     try {
       const mint = web3.Keypair.generate();
@@ -122,21 +186,24 @@ const CandyMachine = ({ walletAddress }) => {
         MintLayout.span
       );
 
+      const [candyMachineCreator, creatorBump] = await getCandyMachineCreator(process.env.REACT_APP_CANDY_MACHINE_ID);
       const accounts = {
-        config,
-        candyMachine: process.env.REACT_APP_CANDY_MACHINE_ID,
-        payer: walletAddress.publicKey,
-        wallet: process.env.REACT_APP_TREASURY_ADDRESS,
-        mint: mint.publicKey,
-        metadata,
-        masterEdition,
-        mintAuthority: walletAddress.publicKey,
-        updateAuthority: walletAddress.publicKey,
-        tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        rent: web3.SYSVAR_RENT_PUBKEY,
-        clock: web3.SYSVAR_CLOCK_PUBKEY,
+          candyMachine: process.env.REACT_APP_CANDY_MACHINE_ID,
+          candyMachineCreator,
+          payer: walletAddress.publicKey,  // Person paying for and receiving the NFT
+          wallet: process.env.REACT_APP_TREASURY_ADDRESS,
+          mint: mint.publicKey,  // Account address of the NFT we will be minting
+          metadata,
+          masterEdition,
+          mintAuthority: walletAddress.publicKey,
+          updateAuthority: walletAddress.publicKey,
+          tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: web3.SYSVAR_RENT_PUBKEY,
+          clock: web3.SYSVAR_CLOCK_PUBKEY,
+          recentBlockhashes: web3.SYSVAR_RECENT_BLOCKHASHES_PUBKEY,
+          instructionSysvarAccount: web3.SYSVAR_INSTRUCTIONS_PUBKEY,
       };
 
       const signers = [mint];
